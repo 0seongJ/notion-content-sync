@@ -7,7 +7,7 @@ from email.utils import parsedate_to_datetime
 
 # ── 환경변수에서 키 로드 ──────────────────────────────────────────────────────
 NOTION_TOKEN       = os.environ['NOTION_TOKEN']
-NOTION_DB_ID       = '42fb5ee8-7ba8-42cf-8013-633869bb823d'
+NOTION_DB_ID       = '7ca9bcf1-1644-4558-bfaf-c44887e03af2'
 NAVER_CLIENT_ID    = os.environ['NAVER_CLIENT_ID']
 NAVER_CLIENT_SECRET= os.environ['NAVER_CLIENT_SECRET']
 
