@@ -5,10 +5,11 @@ import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
-NOTION_TOKEN        = os.environ['NOTION_TOKEN']
-NOTION_DB_ID        = '42fb5ee8-7ba8-42cf-8013-633869bb823d'
-NAVER_CLIENT_ID     = os.environ['NAVER_CLIENT_ID']
-NAVER_CLIENT_SECRET = os.environ['NAVER_CLIENT_SECRET']
+# ── 환경변수에서 키 로드 ──────────────────────────────────────────────────────
+NOTION_TOKEN       = os.environ['NOTION_TOKEN']
+NOTION_DB_ID       = '42fb5ee8-7ba8-42cf-8013-633869bb823d'
+NAVER_CLIENT_ID    = os.environ['NAVER_CLIENT_ID']
+NAVER_CLIENT_SECRET= os.environ['NAVER_CLIENT_SECRET']
 
 CUTOFF_HOURS = 25
 
@@ -18,12 +19,14 @@ notion_headers = {
     'Notion-Version': '2022-06-28'
 }
 
+# ── 유틸 함수 ─────────────────────────────────────────────────────────────────
 def clean_html(text):
     return re.sub('<[^<]+?>', '', text or '').strip()
 
 def get_cutoff():
     return datetime.now(timezone.utc) - timedelta(hours=CUTOFF_HOURS)
 
+# ── RSS/Atom 피드 수집 ────────────────────────────────────────────────────────
 def fetch_rss(url, is_atom=False):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     cutoff = get_cutoff()
@@ -33,7 +36,8 @@ def fetch_rss(url, is_atom=False):
         root = ET.fromstring(r.content)
         ns = {'a': 'http://www.w3.org/2005/Atom'}
         items = []
-        if is_atom:
+
+        if is_atom:  # YouTube
             for entry in root.findall('a:entry', ns):
                 title   = clean_html(entry.findtext('a:title', '', ns))
                 link_el = entry.find('a:link', ns)
@@ -47,7 +51,7 @@ def fetch_rss(url, is_atom=False):
                     pub = datetime.now(timezone.utc)
                 if pub >= cutoff:
                     items.append({'title': title, 'link': link, 'desc': '', 'date': pub.strftime('%Y-%m-%d')})
-        else:
+        else:  # Naver Blog / Tistory / Instagram
             for item in root.findall('.//item'):
                 title   = clean_html(item.findtext('title'))
                 link    = (item.findtext('link') or '').strip()
@@ -61,11 +65,13 @@ def fetch_rss(url, is_atom=False):
                     pub = datetime.now(timezone.utc)
                 if pub >= cutoff:
                     items.append({'title': title, 'link': link, 'desc': desc, 'date': pub.strftime('%Y-%m-%d')})
+
         return items, True
     except Exception as e:
-        print(f'  RSS 실패 ({url}): {e}')
+        print(f'  ⚠️  RSS 실패 ({url}): {e}')
         return [], False
 
+# ── Naver Open API 폴백 ───────────────────────────────────────────────────────
 def fetch_naver_api(blog_address):
     headers = {
         'X-Naver-Client-Id':     NAVER_CLIENT_ID,
@@ -74,6 +80,7 @@ def fetch_naver_api(blog_address):
     today     = datetime.now().strftime('%Y%m%d')
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
     seen = {}
+
     for query in ['음식', '요리', '레시피', '식품', '맛집']:
         try:
             r = requests.get(
@@ -103,7 +110,21 @@ def fetch_naver_api(blog_address):
                 }
         except:
             continue
+
     return list(seen.values())
+
+# ── 쇼핑 커넥트 글 필터 ───────────────────────────────────────────────────────
+SHOPPING_CONNECT_KEYWORDS = [
+    '쇼핑커넥트', '쇼핑 커넥트', 'shopping connect', 'shoppingconnect',
+    '네이버쇼핑', '스마트스토어커넥트', '커넥트상품', '커넥트 상품'
+]
+
+def is_shopping_connect(title, desc):
+    text = (title + ' ' + desc).lower().replace(' ', '')
+    return any(k.replace(' ', '') in text for k in SHOPPING_CONNECT_KEYWORDS)
+
+# ── 브랜드 자동 분류 ──────────────────────────────────────────────────────────
+VALID_BRANDS = {'푸드잇다', '나이스픽', '정금영연구소'}
 
 def classify_brand(title, desc):
     text = (title + ' ' + desc).lower()
@@ -115,6 +136,7 @@ def classify_brand(title, desc):
         return '푸드잇다'
     return ''
 
+# ── 노션 중복 확인 ────────────────────────────────────────────────────────────
 def url_exists_in_notion(url):
     r = requests.post(
         f'https://api.notion.com/v1/databases/{NOTION_DB_ID}/query',
@@ -125,13 +147,14 @@ def url_exists_in_notion(url):
         return len(r.json().get('results', [])) > 0
     return False
 
+# ── 노션 페이지 생성 ──────────────────────────────────────────────────────────
 def create_notion_page(title, channel, notion_id, brand, manager, url, date):
     props = {
-        '주제':        {'title': [{'text': {'content': title}}]},
-        '채널':        {'select': {'name': channel}},
-        '아이디':      {'select': {'name': notion_id}},
-        '업로드 링크': {'url': url},
-        '상태':        {'select': {'name': '업로드 완료'}},
+        '주제':       {'title': [{'text': {'content': title}}]},
+        '채널':       {'select': {'name': channel}},
+        '아이디':     {'select': {'name': notion_id}},
+        '업로드 링크':{'url': url},
+        '상태':       {'select': {'name': '업로드 완료'}},
     }
     if date:
         props['실제 업로드일'] = {'date': {'start': date}}
@@ -139,6 +162,7 @@ def create_notion_page(title, channel, notion_id, brand, manager, url, date):
         props['브랜드'] = {'select': {'name': brand}}
     if manager:
         props['담당자'] = {'select': {'name': manager}}
+
     r = requests.post(
         'https://api.notion.com/v1/pages',
         headers=notion_headers,
@@ -146,51 +170,83 @@ def create_notion_page(title, channel, notion_id, brand, manager, url, date):
     )
     if r.status_code == 200:
         return True
-    print(f'  노션 등록 실패 ({r.status_code}): {r.text[:200]}')
+    print(f'  ❌ 노션 등록 실패 ({r.status_code}): {r.text[:200]}')
     return False
 
+# ── 계정 목록 ─────────────────────────────────────────────────────────────────
 ACCOUNTS = [
-    ('ys03000',        '네이버 블로그', 'N_메인_ys03000',           '푸드잇다',    '',       'naver'),
-    ('jfoodtion',      '네이버 블로그', 'N_ 메인_jfoodtion',        '정금영연구소','',       'naver'),
-    ('npick2025',      '네이버 블로그', 'N_메인_npick2025',          '나이스픽',   '',       'naver'),
-    ('shoongni',       '네이버 블로그', 'N_부_시윤_tbd03000',        'AUTO',       '김시윤', 'naver'),
-    ('ytty090',        '네이버 블로그', 'N_부_윤택_pond21237',       'AUTO',       '김시윤', 'naver'),
-    ('090tyyt',        '네이버 블로그', 'N_부_윤택_sorry21237',      'AUTO',       '김시윤', 'naver'),
-    ('chungsfam_',     '네이버 블로그', 'N_부_이사_cdg03000',        'AUTO',       '김시윤', 'naver'),
-    ('chungsfamillly', '네이버 블로그', 'N_부_이사_sdcoop2013',      'AUTO',       '김시윤', 'naver'),
-    ('deeep-',         '네이버 블로그', 'N_부_슬기_zzi90com',        'AUTO',       '배슬기', 'naver'),
-    ('https://cbg03000.tistory.com/rss',  '티스토리', 'T_부_이사_cbg03000',  'AUTO', '김시윤', 'tistory'),
-    ('https://1ovreview.tistory.com/rss', '티스토리', 'T_부_슬기_1ovreview', 'AUTO', '배슬기', 'tistory'),
+    ('ys03000',        '네이버 블로그', 'N_메인_ys03000',           '푸드잇다',    '',      'naver'),
+    ('jfoodtion',      '네이버 블로그', 'N_ 메인_jfoodtion',        '정금영연구소','',      'naver'),
+    ('npick2025',      '네이버 블로그', 'N_메인_npick2025',          '나이스픽',   '',      'naver'),
+    ('shoongni',       '네이버 블로그', 'N_부_시윤_tbd03000',        'AUTO',       '김시윤','naver'),
+    ('ytty090',        '네이버 블로그', 'N_부_윤택_pond21237',       'AUTO',       '김시윤','naver'),
+    ('090tyyt',        '네이버 블로그', 'N_부_윤택_sorry21237',      'AUTO',       '김시윤','naver'),
+    ('chungsfam_',     '네이버 블로그', 'N_부_이사_cdg03000',        'AUTO',       '김시윤','naver'),
+    ('chungsfamillly', '네이버 블로그', 'N_부_이사_sdcoop2013',      'AUTO',       '김시윤','naver'),
+    ('deeep-',         '네이버 블로그', 'N_부_슬기_zzi90com',        'AUTO',       '배슬기','naver'),
+    ('https://cbg03000.tistory.com/rss',  '티스토리', 'T_부_이사_cbg03000',  'AUTO', '김시윤','tistory'),
+    ('https://1ovreview.tistory.com/rss', '티스토리', 'T_부_슬기_1ovreview', 'AUTO', '배슬기','tistory'),
     ('https://www.youtube.com/feeds/videos.xml?channel_id=UC0FKLLsftVKnxvXsGa8vcJQ',
-                       '유튜브',        'Y_메인_나이스픽(jgy03000)', '나이스픽',   '',       'youtube'),
+                       '유튜브',        'Y_메인_나이스픽(jgy03000)', '나이스픽',   '',      'youtube'),
+    ('https://rsshub.app/instagram/user/food_itda',     '인스타그램', 'I_메인_food_itda',     '푸드잇다', '', 'instagram'),
+    ('https://rsshub.app/instagram/user/nicepick_2025', '인스타그램', 'I_메인_nicepick_2025', '나이스픽', '', 'instagram'),
 ]
 
+# ── 메인 실행 ─────────────────────────────────────────────────────────────────
 def main():
     created = 0
-    print(f'동기화 시작: {datetime.now().strftime("%Y-%m-%d %H:%M")} (최근 {CUTOFF_HOURS}시간)')
+    print(f'🚀 동기화 시작: {datetime.now().strftime("%Y-%m-%d %H:%M")} (최근 {CUTOFF_HOURS}시간 확인)\n')
+
     for addr, channel, notion_id, brand, manager, acc_type in ACCOUNTS:
-        print(f'\n{notion_id}')
+        print(f'📂 {notion_id}')
         posts = []
+
         if acc_type == 'naver':
-            posts, ok = fetch_rss(f'https://rss.blog.naver.com/{addr}.xml')
+            rss_url = f'https://rss.blog.naver.com/{addr}.xml'
+            posts, ok = fetch_rss(rss_url)
             if not ok:
+                print(f'  → RSS 차단, Naver API 폴백 시도')
                 posts = fetch_naver_api(addr)
         elif acc_type == 'tistory':
             posts, _ = fetch_rss(addr)
         elif acc_type == 'youtube':
             posts, _ = fetch_rss(addr, is_atom=True)
+        elif acc_type == 'instagram':
+            posts, _ = fetch_rss(addr)
+
         if not posts:
-            print('  새 게시물 없음')
+            print(f'  → 새 게시물 없음\n')
             continue
+
         for post in posts:
-            actual_brand = brand if brand != 'AUTO' else classify_brand(post['title'], post['desc'])
-            if url_exists_in_notion(post['link']):
-                print(f'  이미 등록됨: {post["title"][:40]}')
+            # 쇼핑 커넥트 관련 글 제외
+            if is_shopping_connect(post['title'], post['desc']):
+                print(f'  🚫 쇼핑커넥트 제외: {post["title"][:40]}')
                 continue
-            if create_notion_page(post['title'], channel, notion_id, actual_brand, manager, post['link'], post['date']):
+
+            actual_brand = brand if brand != 'AUTO' else classify_brand(post['title'], post['desc'])
+
+            # 3개 브랜드에 해당하지 않는 글 제외
+            if actual_brand not in VALID_BRANDS:
+                print(f'  🚫 브랜드 미분류 제외: {post["title"][:40]}')
+                continue
+
+            if url_exists_in_notion(post['link']):
+                print(f'  ⏭️  이미 등록됨: {post["title"][:40]}')
+                continue
+
+            success = create_notion_page(
+                title=post['title'], channel=channel, notion_id=notion_id,
+                brand=actual_brand, manager=manager,
+                url=post['link'], date=post['date']
+            )
+            if success:
                 created += 1
-                print(f'  등록: {post["title"][:40]}')
-    print(f'\n완료: 총 {created}개 노션 등록')
+                print(f'  ✅ 등록: {post["title"][:40]}')
+        print()
+
+    print(f'─' * 50)
+    print(f'✅ 완료: 총 {created}개 노션 등록')
 
 if __name__ == '__main__':
     main()
