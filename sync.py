@@ -81,7 +81,22 @@ def fetch_naver_api(blog_address):
     yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
     seen = {}
 
-    for query in ['음식', '요리', '레시피', '식품', '맛집']:
+    for query in [
+        # 기본
+        '음식', '요리', '레시피', '식품', '맛집', '먹거리',
+        # 농산물/채소
+        '고구마', '죽순', '양배추', '감자', '당근', '무', '파', '마늘', '양파', '호박', '버섯', '브로콜리',
+        # 과일
+        '딸기', '사과', '배', '포도', '감귤', '수박', '참외',
+        # 수산물
+        '꽃게', '해산물', '수산', '생선', '새우', '전복', '굴', '오징어', '낙지', '문어',
+        # 축산물
+        '소고기', '돼지고기', '닭고기', '삼겹살', '한우', '곱창', '막창',
+        # 가공/간편식
+        '반찬', '밀키트', '간편식', '간식', '음료', '냉동', '즉석',
+        # 판매 관련
+        '특가', '할인', '공동구매', '직구', '주말특가',
+    ]:
         try:
             r = requests.get(
                 'https://openapi.naver.com/v1/search/blog.json',
@@ -124,17 +139,16 @@ def is_shopping_connect(title, desc):
     return any(k.replace(' ', '') in text for k in SHOPPING_CONNECT_KEYWORDS)
 
 # ── 브랜드 자동 분류 ──────────────────────────────────────────────────────────
-VALID_BRANDS = {'푸드잇다', '나이스픽', '정금영연구소'}
-
 def classify_brand(title, desc):
     text = (title + ' ' + desc).lower()
-    if any(k in text for k in ['곱창','막창','냉동','청류','쌀과자','쌀강정','쌀가공','밀키트','간편식','유아','아기','키즈','정금영연구소']):
+    # 정금영연구소 - 브랜드명 또는 고유 제품명 명시
+    if any(k in text for k in ['정금영연구소', '정금영', '곱창', '막창', '청류', '쌀과자', '쌀강정', '쌀가공', '유아간식', '아기간식', '키즈간식', '이유식']):
         return '정금영연구소'
-    if any(k in text for k in ['나이스픽','nicepick','라이브','특가','그립','클릭메이트','라이브커머스']):
+    # 나이스픽 - 브랜드명 또는 라이브커머스 채널명 명시
+    if any(k in text for k in ['나이스픽', 'nicepick', '그립tv', '그립 tv', '클릭메이트', '라이브방송', '라이브쇼핑']):
         return '나이스픽'
-    if any(k in text for k in ['푸드잇다','fooditda','반찬','찌개']):
-        return '푸드잇다'
-    return ''
+    # 푸드잇다 - 브랜드명 명시 또는 기본값
+    return '푸드잇다'
 
 # ── 노션 중복 확인 ────────────────────────────────────────────────────────────
 def url_exists_in_notion(url):
@@ -181,7 +195,7 @@ ACCOUNTS = [
     ('shoongni',       '네이버 블로그', 'N_부_시윤_tbd03000',        'AUTO',       '김시윤','naver'),
     ('ytty090',        '네이버 블로그', 'N_부_윤택_pond21237',       'AUTO',       '김시윤','naver'),
     ('090tyyt',        '네이버 블로그', 'N_부_윤택_sorry21237',      'AUTO',       '김시윤','naver'),
-    ('chungsfam_',     '네이버 블로그', 'N_부_이사_cdg03000',        'AUTO',       '김시윤','naver'),
+    ('chungsfam_',     '네이버 블로그', 'N_부_이사_cbg03000',        'AUTO',       '김시윤','naver'),
     ('chungsfamillly', '네이버 블로그', 'N_부_이사_sdcoop2013',      'AUTO',       '김시윤','naver'),
     ('deeep-',         '네이버 블로그', 'N_부_슬기_zzi90com',        'AUTO',       '배슬기','naver'),
     ('https://cbg03000.tistory.com/rss',  '티스토리', 'T_부_이사_cbg03000',  'AUTO', '김시윤','tistory'),
@@ -225,11 +239,6 @@ def main():
                 continue
 
             actual_brand = brand if brand != 'AUTO' else classify_brand(post['title'], post['desc'])
-
-            # 3개 브랜드에 해당하지 않는 글 제외
-            if actual_brand not in VALID_BRANDS:
-                print(f'  🚫 브랜드 미분류 제외: {post["title"][:40]}')
-                continue
 
             if url_exists_in_notion(post['link']):
                 print(f'  ⏭️  이미 등록됨: {post["title"][:40]}')
