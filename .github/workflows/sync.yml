@@ -26,4 +26,5 @@ jobs:
           NOTION_TOKEN:        ${{ secrets.NOTION_TOKEN }}
           NAVER_CLIENT_ID:     ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: python sync.py
